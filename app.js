@@ -1,10 +1,12 @@
 /* ============================
    SUPABASE SETUP
 ============================ */
-const SUPABASE_URL = 'https://ektgxmnhlbpggtcemepcfi.supabase.co';
+// Replace these with your project URL and public Anon key!
+const SUPABASE_URL = 'https://ektgxmnhlbpgcemepcfi.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_gswwM7fTjhzZIfVP2VHDSA_Ixs4wa29';
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// We name this 'db' to completely avoid any 'supabase' naming errors!
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ============================
    STATE & CONSTANTS
@@ -41,7 +43,7 @@ let routeLayerGroup = null;
 ============================ */
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
-    fetchSupabaseData();
+    fetchSupabaseData(); // Auto-load data when the page opens
 });
 
 function initMap() {
@@ -94,14 +96,15 @@ function initMap() {
 }
 
 /* ============================
-   DATABASE FETCH
+   DATABASE FETCH (SUPABASE)
 ============================ */
 async function fetchSupabaseData() {
     showToast('Connecting to secure database...', 'info');
 
     try {
-        const { data, error } = await supabase
-            .from('sites')
+        // Using the 'db' variable we created at the top
+        const { data, error } = await db
+            .from('odp')
             .select('*');
 
         if (error) throw error;
@@ -115,8 +118,10 @@ async function fetchSupabaseData() {
         const parsed = [];
 
         data.forEach(row => {
+            // Require Name, Lat, and Long
             if (!row.name || !row.latitude || !row.longitude) return; 
             
+            // Validate the color column
             if (!row.color || !validColors.includes(row.color.toLowerCase())) {
                 row.color = 'green';
             } else {
