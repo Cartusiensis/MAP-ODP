@@ -81,7 +81,7 @@ function initMap() {
         maxClusterRadius: 50,
         spiderfyOnMaxZoom: true,
         showCoverageOnHover: false,
-        disableClusteringAtZoom: 18,
+        disableClusteringAtZoom: 16,
         iconCreateFunction: function(cluster) {
             return L.divIcon({
                 html: `<div class="custom-cluster-inner">${cluster.getChildCount()}</div>`,
@@ -99,17 +99,35 @@ function initMap() {
    DATABASE FETCH (SUPABASE)
 ============================ */
 async function fetchSupabaseData() {
-    showToast('Connecting to secure database...', 'info');
+    showToast('Downloading data from secure database...', 'info');
 
     try {
-        // Using the 'db' variable we created at the top
-        const { data, error } = await db
-            .from('odp_map')
-            .select('*');
+        let allData = [];
+        let isFetching = true;
+        let startRow = 0;
+        const batchSize = 1000;
 
-        if (error) throw error;
+        // Loop to bypass the 1000-row limit and fetch all 6000+ rows
+        while (isFetching) {
+            const { data, error } = await db
+                .from('odp')
+                .select('*')
+                .range(startRow, startRow + batchSize - 1);
 
-        if (!data || data.length === 0) {
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                allData = allData.concat(data);
+                startRow += batchSize; // Move to the next batch
+            }
+
+            // If it returns less than 1000, we have reached the end of the database
+            if (!data || data.length < batchSize) {
+                isFetching = false; 
+            }
+        }
+
+        if (allData.length === 0) {
             showToast('Database is empty.', 'error');
             return;
         }
@@ -117,21 +135,33 @@ async function fetchSupabaseData() {
         const validColors = Object.keys(COLOR_MAP);
         const parsed = [];
 
-        data.forEach(row => {
+        allData.forEach(row => {
+            const normalized = {};
+
+            // Make it immune to uppercase/lowercase column names
+            Object.keys(row).forEach(key => {
+                const k = key.trim().toLowerCase().replace(/[_\s]+/g, '');
+                
+                if (['name','sitename','site'].includes(k)) normalized.name = String(row[key]).trim();
+                else if (['latitude','lat','y'].includes(k)) normalized.latitude = parseFloat(row[key]);
+                else if (['longitude','lng','lon','long','x'].includes(k)) normalized.longitude = parseFloat(row[key]);
+                else if (['color','colour','statuscolor','markercolor'].includes(k)) normalized.color = String(row[key]).trim().toLowerCase();
+                else normalized[key] = row[key]; 
+            });
+
             // Require Name, Lat, and Long
-            if (!row.name || !row.latitude || !row.longitude) return; 
+            if (!normalized.name || isNaN(normalized.latitude) || isNaN(normalized.longitude)) return; 
             
             // Validate the color column
-            if (!row.color || !validColors.includes(row.color.toLowerCase())) {
-                row.color = 'green';
-            } else {
-                row.color = row.color.toLowerCase();
+            if (!normalized.color || !validColors.includes(normalized.color)) {
+                normalized.color = 'green'; 
             }
-            parsed.push(row);
+            
+            parsed.push(normalized);
         });
 
         loadSites(parsed);
-        showToast(`Loaded ${parsed.length} sites from database!`, 'success');
+        showToast(`Loaded all ${parsed.length} sites from database!`, 'success');
 
     } catch (err) {
         console.error('Supabase error:', err.message);
