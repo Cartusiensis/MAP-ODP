@@ -48,7 +48,7 @@ body { font-family: 'DM Sans', sans-serif; overflow: hidden; background: #0D1117
     border-color: #F0883E;
 }
 
-/* Classic Google Red Pin */
+/* Classic Google Red Pin SVG Container */
 .google-red-pin {
     width: 26px;
     height: 38px;
@@ -67,12 +67,6 @@ body { font-family: 'DM Sans', sans-serif; overflow: hidden; background: #0D1117
     transition: transform 0.35s cubic-bezier(0.22,1,0.36,1);
 }
 #detail-panel.open { transform: translateX(0); }
-
-/* Modal */
-#format-modal { opacity: 0; pointer-events: none; transition: opacity 0.25s ease; }
-#format-modal.open { opacity: 1; pointer-events: auto; }
-#format-modal .modal-body { transform: translateY(20px) scale(0.97); transition: transform 0.3s cubic-bezier(0.22,1,0.36,1); }
-#format-modal.open .modal-body { transform: translateY(0) scale(1); }
 
 /* Toast */
 .toast-item { animation: toastIn 0.4s cubic-bezier(0.22,1,0.36,1), toastOut 0.3s ease 2.7s forwards; }

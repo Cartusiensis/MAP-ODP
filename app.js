@@ -1,16 +1,13 @@
 /* ============================
    SUPABASE SETUP
 ============================ */
-const SUPABASE_URL = 'https://ektgxmnhlbpgcemepcfi.supabase.co';
+const SUPABASE_URL = 'https://ektgxmnhlbpggtcemepcfi.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_gswwM7fTjhzZIfVP2VHDSA_Ixs4wa29';
 
-// Initialize the Supabase client
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ============================
-   STATE
+   STATE & CONSTANTS
 ============================ */
 const COLOR_MAP = {
     red:    '#EF4444',
@@ -36,7 +33,7 @@ let activeFilter = null;
 let listSearchQuery = "";
 let searchMarker = null;
 
-// Route State (LayerGroup to hold both border and inner line)
+// Route Layer Group (Holds both border and inner line)
 let routeLayerGroup = null;
 
 /* ============================
@@ -44,6 +41,7 @@ let routeLayerGroup = null;
 ============================ */
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
+    fetchSupabaseData();
 });
 
 function initMap() {
@@ -81,7 +79,7 @@ function initMap() {
         maxClusterRadius: 50,
         spiderfyOnMaxZoom: true,
         showCoverageOnHover: false,
-        disableClusteringAtZoom: 16,
+        disableClusteringAtZoom: 18,
         iconCreateFunction: function(cluster) {
             return L.divIcon({
                 html: `<div class="custom-cluster-inner">${cluster.getChildCount()}</div>`,
@@ -93,9 +91,47 @@ function initMap() {
     map.addLayer(markersGroup);
 
     map.on('click', () => { closeDetail(); });
+}
 
-    // Fetch data from database when map is ready
-    fetchSupabaseData();
+/* ============================
+   DATABASE FETCH
+============================ */
+async function fetchSupabaseData() {
+    showToast('Connecting to secure database...', 'info');
+
+    try {
+        const { data, error } = await supabase
+            .from('sites')
+            .select('*');
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            showToast('Database is empty.', 'error');
+            return;
+        }
+
+        const validColors = Object.keys(COLOR_MAP);
+        const parsed = [];
+
+        data.forEach(row => {
+            if (!row.name || !row.latitude || !row.longitude) return; 
+            
+            if (!row.color || !validColors.includes(row.color.toLowerCase())) {
+                row.color = 'green';
+            } else {
+                row.color = row.color.toLowerCase();
+            }
+            parsed.push(row);
+        });
+
+        loadSites(parsed);
+        showToast(`Loaded ${parsed.length} sites from database!`, 'success');
+
+    } catch (err) {
+        console.error('Supabase error:', err.message);
+        showToast('Failed to load database. Check Console.', 'error');
+    }
 }
 
 /* ============================
@@ -248,7 +284,7 @@ function selectSite(idx) {
     }
 }
 
-// Draw a Google-style layered route
+// Draw a Google-style layered walking route
 async function calculateAndDrawRoute(start, end) {
     if (routeLayerGroup) {
         map.removeLayer(routeLayerGroup);
@@ -277,14 +313,12 @@ async function calculateAndDrawRoute(start, end) {
             style: { color: '#1e40af', weight: 8, opacity: 0.8, lineCap: 'round', lineJoin: 'round' } 
         });
         
-        // 2. Bright Blue Inner Line (Solid, like GMaps)
+        // 2. Bright Blue Inner Line
         const innerLayer = L.geoJSON(geojson, {
             style: { color: '#3b82f6', weight: 4.5, opacity: 1.0, lineCap: 'round', lineJoin: 'round' } 
         });
 
-        // Group them together
         routeLayerGroup = L.layerGroup([outlineLayer, innerLayer]).addTo(map);
-        
         map.flyToBounds(outlineLayer.getBounds(), { padding: [80, 80], duration: 0.8 });
         
         updateRouteUI(distance);
@@ -412,7 +446,7 @@ function searchCoord() {
         className: 'marker-wrapper',
         html: `<div class="google-red-pin">${googlePinSVG}</div>`,
         iconSize: [36, 48],
-        iconAnchor: [18, 48] // perfectly anchors the bottom tip of the pin to the coordinate
+        iconAnchor: [18, 48] 
     });
     
     searchMarker = L.marker([lat, lng], { icon }).addTo(map);
@@ -446,90 +480,12 @@ function fitAll() {
 }
 
 /* ============================
-   EXCEL IMPORT
+   UTILITIES
 ============================ */
-function handleFileUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    
-    showToast('Reading Excel file...', 'info');
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        setTimeout(() => {
-            try {
-                const wb = XLSX.read(e.target.result, { type: 'array' });
-                const ws = wb.Sheets[wb.SheetNames[0]];
-                const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
-
-                if (json.length === 0) {
-                    showToast('Excel file is empty', 'error');
-                    return;
-                }
-
-                const normalized = json.map(row => {
-                    const obj = {};
-                    Object.keys(row).forEach(key => {
-                        const k = key.trim().toLowerCase().replace(/[_\s]+/g, '');
-                        if (['name','sitename','site'].includes(k)) obj.name = String(row[key]).trim();
-                        else if (['latitude','lat','y'].includes(k)) obj.latitude = parseFloat(row[key]);
-                        else if (['longitude','lng','lon','long','x'].includes(k)) obj.longitude = parseFloat(row[key]);
-                        else if (['color','colour','statuscolor','markercolor'].includes(k)) obj.color = String(row[key]).trim().toLowerCase();
-                        else obj[key.trim()] = row[key];
-                    });
-                    return obj;
-                });
-
-                const validColors = Object.keys(COLOR_MAP);
-                const parsed = [];
-                const errors = [];
-
-                normalized.forEach((row, i) => {
-                    const rowNum = i + 2;
-                    if (!row.name) { errors.push(`Row ${rowNum}: missing Name`); return; }
-                    if (isNaN(row.latitude) || isNaN(row.longitude)) { errors.push(`Row ${rowNum}: invalid Coordinates`); return; }
-                    if (!row.color || !validColors.includes(row.color)) row.color = 'green';
-                    parsed.push(row);
-                });
-
-                loadSites(parsed);
-
-                let msg = `Loaded ${parsed.length} sites successfully!`;
-                showToast(msg, 'success');
-
-            } catch (err) {
-                showToast('Failed to read Excel file.', 'error');
-                console.error(err);
-            }
-        }, 50);
-    };
-    reader.readAsArrayBuffer(file);
-    event.target.value = '';
-}
-
-function downloadTemplate() {
-    const headers = ['Name','Latitude','Longitude','Color','Address','Contact','Phone'];
-    const sample = ['Central HQ','40.758','-73.9855','green','151 W 34th St, NY','Jane Doe','(212) 555-0134'];
-    const ws = XLSX.utils.aoa_to_sheet([headers, sample]);
-    ws['!cols'] = headers.map(() => ({ wch: 20 }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Sites');
-    XLSX.writeFile(wb, 'territory_sites_template.xlsx');
-    showToast('Template downloaded', 'success');
-}
-
-function clearAllSites() {
-    loadSites([]);
-    showToast('All sites cleared', 'success');
-}
-
 function toggleSidebar() {
     document.getElementById('sidebar').classList.toggle('show');
     document.getElementById('sidebar-overlay').classList.toggle('show');
 }
-
-function showFormatModal() { document.getElementById('format-modal').classList.add('open'); }
-function closeFormatModal() { document.getElementById('format-modal').classList.remove('open'); }
 
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -556,52 +512,4 @@ function escHtml(str) {
     const d = document.createElement('div');
     d.textContent = str;
     return d.innerHTML;
-}
-
-
-/* ============================
-   DATABASE FETCH
-============================ */
-async function fetchSupabaseData() {
-    showToast('Connecting to secure database...', 'info');
-
-    try {
-        // Fetch all rows from the 'sites' table
-        const { data, error } = await supabase
-            .from('sites')
-            .select('*');
-
-        if (error) throw error;
-
-        if (!data || data.length === 0) {
-            showToast('Database is empty.', 'error');
-            return;
-        }
-
-        const validColors = Object.keys(COLOR_MAP);
-        const parsed = [];
-
-        // Clean up the data exactly like we did with Excel
-        data.forEach(row => {
-            // Ensure required columns exist
-            if (!row.name || !row.latitude || !row.longitude) return; 
-            
-            // Validate color
-            if (!row.color || !validColors.includes(row.color.toLowerCase())) {
-                row.color = 'green';
-            } else {
-                row.color = row.color.toLowerCase();
-            }
-            
-            parsed.push(row);
-        });
-
-        // Load into map
-        loadSites(parsed);
-        showToast(`Loaded ${parsed.length} sites from database!`, 'success');
-
-    } catch (err) {
-        console.error('Supabase error:', err.message);
-        showToast('Failed to load database.', 'error');
-    }
 }
