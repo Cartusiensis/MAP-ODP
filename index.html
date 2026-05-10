@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map ODP</title>
+    
+    <!-- Tailwind & Fonts -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <!-- Leaflet & Excel -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <!-- Leaflet MarkerCluster -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+
+    <!-- Supabase Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Link to Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        bg: '#0D1117', sidebar: '#131921', card: '#1A2233',
+                        surface: '#243044', border: '#2A3A50', fg: '#E6EDF3',
+                        muted: '#7D8CA3', accent: '#F0883E', 'accent-h': '#D97B35',
+                    },
+                    fontFamily: {
+                        display: ['"Space Grotesk"', 'sans-serif'],
+                        body: ['"DM Sans"', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-bg text-fg font-body">
+
+    <div id="toast-container" class="fixed top-4 right-4 z-[2000] flex flex-col gap-2 pointer-events-none"></div>
+    <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+    <div class="flex h-screen w-screen">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="w-[340px] min-w-[340px] bg-sidebar flex flex-col border-r border-border relative shadow-xl z-20">
+            <div class="sidebar-accent"></div>
+
+            <div class="px-5 pt-5 pb-3">
+                <div class="flex items-center gap-3 mb-1">
+                    <div class="w-9 h-9 rounded-lg bg-accent/15 flex items-center justify-center">
+                        <i class="fa-solid fa-map-location-dot text-accent text-sm"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-display font-bold text-lg leading-tight text-fg">Map ODP</h1>
+                        <p class="text-xs text-muted leading-tight">ODP overview and navigation</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Coordinate search -->
+            <div class="px-5 pb-3">
+                <label class="text-[11px] font-semibold uppercase tracking-wider text-muted mb-1.5 block">Go to Coordinate</label>
+                <div class="flex gap-2">
+                    <div class="flex-1 relative">
+                        <i class="fa-solid fa-crosshairs absolute left-3 top-1/2 -translate-y-1/2 text-muted text-xs"></i>
+                        <input id="coord-input" type="text" placeholder="e.g. 40.7128, -74.0060"
+                            class="w-full bg-card border border-border rounded-lg pl-8 pr-3 py-2 text-sm text-fg placeholder-muted/50 focus:outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/30 transition"
+                            onkeydown="if(event.key==='Enter') searchCoord()">
+                    </div>
+                    <button onclick="searchCoord()" class="px-3 bg-accent hover:bg-accent-h text-white rounded-lg text-sm font-semibold transition flex items-center justify-center" title="Search">
+                        <i class="fa-solid fa-location-arrow text-xs"></i>
+                    </button>
+                    <!-- Clear Pin Button -->
+                    <button id="clear-pin-btn" onclick="clearSearchPin()" class="hidden px-3 bg-card hover:bg-red-900/30 border border-border rounded-lg text-muted hover:text-red-400 transition" title="Clear Pin & Route">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Legend -->
+            <div class="px-5 pb-3">
+                <label class="text-[11px] font-semibold uppercase tracking-wider text-muted mb-2 block">Status Legend</label>
+                <div id="legend" class="flex flex-wrap gap-2"></div>
+                <div class="mt-2 text-xs text-muted">
+                    <span id="total-count">0</span> ODP total &middot; click a color to filter
+                </div>
+            </div>
+
+            <div class="mx-5 border-t border-border mb-3"></div>
+
+            <!-- Search -->
+            <div class="px-4 pb-2">
+                <div class="relative">
+                    <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-muted text-xs"></i>
+                    <input id="list-search-input" type="text" placeholder="Search odp names..."
+                        class="w-full bg-card border border-border rounded-lg pl-8 pr-3 py-1.5 text-sm text-fg placeholder-muted/50 focus:outline-none focus:border-accent/60 transition"
+                        oninput="handleListSearch(event)">
+                </div>
+            </div>
+
+            <!-- Site List -->
+            <div class="flex-1 overflow-y-auto px-3 pb-3" id="site-list-container">
+                <div id="site-list" class="flex flex-col gap-0.5"></div>
+                <div id="empty-state" class="hidden flex-col items-center justify-center py-12 text-center">
+                    <div class="w-14 h-14 rounded-full bg-card flex items-center justify-center mb-3">
+                        <i class="fa-solid fa-map-pin text-muted text-xl"></i>
+                    </div>
+                    <p class="text-muted text-sm font-medium">No odp found</p>
+                    <p class="text-muted/60 text-xs mt-1">Import an Excel file to get started</p>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="px-5 py-4 border-t border-border bg-sidebar/80 backdrop-blur-sm">
+                <div class="flex gap-2 mb-2">
+                    <button onclick="document.getElementById('file-input').click()" class="flex-1 flex items-center justify-center gap-2 bg-accent hover:bg-accent-h text-white rounded-lg py-2.5 text-sm font-semibold transition shadow-lg shadow-accent/20">
+                        <i class="fa-solid fa-file-excel text-xs"></i> Import Excel
+                    </button>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="fitAll()" class="flex-1 flex items-center justify-center gap-2 bg-card hover:bg-surface border border-border rounded-lg py-2 text-xs text-muted hover:text-fg transition">
+                        <i class="fa-solid fa-expand text-[10px]"></i> Fit All
+                    </button>
+                    <button onclick="showFormatModal()" class="flex-1 flex items-center justify-center gap-2 bg-card hover:bg-surface border border-border rounded-lg py-2 text-xs text-muted hover:text-fg transition">
+                        <i class="fa-solid fa-circle-info text-[10px]"></i> Format
+                    </button>
+                    <button onclick="clearAllSites()" class="px-3 bg-card hover:bg-red-900/30 border border-border rounded-lg text-xs text-muted hover:text-red-400 transition" title="Clear All">
+                        <i class="fa-solid fa-trash text-[10px]"></i>
+                    </button>
+                </div>
+                <input type="file" id="file-input" accept=".xlsx,.xls,.csv" class="hidden" onchange="handleFileUpload(event)">
+            </div>
+        </aside>
+
+        <!-- Map Area -->
+        <div class="flex-1 relative z-10">
+            <button id="mobile-menu-btn" onclick="toggleSidebar()" class="md:hidden absolute top-4 left-4 z-[1001] w-10 h-10 bg-sidebar/90 backdrop-blur border border-border rounded-lg flex items-center justify-center text-fg shadow-lg">
+                <i class="fa-solid fa-bars text-sm"></i>
+            </button>
+
+            <div id="map" class="w-full h-full bg-[#1A2233]"></div>
+
+            <!-- Detail panel -->
+            <div id="detail-panel" class="absolute top-0 right-0 w-[380px] max-w-[90vw] h-full bg-sidebar/95 backdrop-blur-xl border-l border-border z-[800] flex flex-col shadow-2xl">
+                <div id="detail-color-bar" class="h-1.5 w-full"></div>
+
+                <div class="flex items-center justify-between px-5 pt-4 pb-2">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-muted">ODP Details</span>
+                    <button onclick="closeDetail()" class="w-8 h-8 rounded-lg bg-card hover:bg-surface flex items-center justify-center text-muted hover:text-fg transition">
+                        <i class="fa-solid fa-xmark text-sm"></i>
+                    </button>
+                </div>
+
+                <div class="flex-1 overflow-y-auto px-5 pb-6" id="detail-content"></div>
+
+                <div class="px-5 py-3 border-t border-border flex gap-2">
+                    <button onclick="panToSelected()" class="flex-1 flex items-center justify-center gap-2 bg-accent hover:bg-accent-h text-white rounded-lg py-2.5 text-sm font-semibold transition">
+                        <i class="fa-solid fa-location-arrow text-xs"></i> Zoom to ODP
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Format Modal -->
+    <div id="format-modal" class="fixed inset-0 z-[3000] flex items-center justify-center bg-black/60 backdrop-blur-sm" onclick="if(event.target===this)closeFormatModal()">
+        <div class="modal-body bg-sidebar border border-border rounded-2xl w-[520px] max-w-[92vw] max-h-[85vh] overflow-y-auto shadow-2xl">
+            <div class="px-6 pt-6 pb-4 border-b border-border flex items-center justify-between">
+                <h2 class="font-display font-bold text-lg text-fg">Excel Column Format</h2>
+                <button onclick="closeFormatModal()" class="w-8 h-8 rounded-lg bg-card hover:bg-surface flex items-center justify-center text-muted hover:text-fg transition">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+            <div class="px-6 py-5 space-y-5">
+                <div>
+                    <h3 class="text-sm font-semibold text-accent mb-2">Required Columns</h3>
+                    <div class="bg-card rounded-xl p-4 space-y-2 text-sm">
+                        <div class="flex gap-3"><code class="text-accent font-mono font-bold min-w-[90px]">Name</code><span class="text-muted">ODP name or identifier</span></div>
+                        <div class="flex gap-3"><code class="text-accent font-mono font-bold min-w-[90px]">Latitude</code><span class="text-muted">Decimal degrees (e.g. 40.7128)</span></div>
+                        <div class="flex gap-3"><code class="text-accent font-mono font-bold min-w-[90px]">Longitude</code><span class="text-muted">Decimal degrees (e.g. -74.0060)</span></div>
+                        <div class="flex gap-3"><code class="text-accent font-mono font-bold min-w-[90px]">Color</code><span class="text-muted">One of: <span class="inline-flex gap-1.5 ml-1"><span class="text-red-400 font-semibold">red</span><span class="text-orange-400 font-semibold">orange</span><span class="text-yellow-400 font-semibold">yellow</span><span class="text-green-400 font-semibold">green</span><span class="text-gray-400 font-semibold">black</span></span></span></div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold text-accent mb-2">Optional Columns</h3>
+                    <p class="text-muted text-sm mb-2">Add any columns you need — they'll all show up in the odp detail panel.</p>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="downloadTemplate();closeFormatModal()" class="flex-1 flex items-center justify-center gap-2 bg-accent hover:bg-accent-h text-white rounded-lg py-2.5 text-sm font-semibold transition">
+                        <i class="fa-solid fa-download text-xs"></i> Download Template
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Link to Custom JS -->
+    <script src="app.js"></script>
+</body>
+</html>
