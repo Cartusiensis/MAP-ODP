@@ -104,7 +104,7 @@ async function fetchSupabaseData() {
     try {
         // Using the 'db' variable we created at the top
         const { data, error } = await db
-            .from('odp')
+            .from('odp_map')
             .select('*');
 
         if (error) throw error;
