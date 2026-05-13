@@ -1,11 +1,9 @@
 /* ============================
    SUPABASE SETUP
 ============================ */
-// Replace these with your project URL and public Anon key!
 const SUPABASE_URL = 'https://ektgxmnhlbpgcemepcfi.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_gswwM7fTjhzZIfVP2VHDSA_Ixs4wa29';
 
-// We name this 'db' to completely avoid any 'supabase' naming errors!
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ============================
@@ -35,15 +33,30 @@ let activeFilter = null;
 let listSearchQuery = "";
 let searchMarker = null;
 
-// Route Layer Group (Holds both border and inner line)
+// Route Layer Group
 let routeLayerGroup = null;
+
+// MEASURE TOOL STATE
+let isMeasureToolOpen = false;
+let measureMode = 'none'; // 'distance', 'area', 'finished', or 'none'
+let measurePoints = [];
+let measureLayerGroup = null; 
+let measureTempLayer = null; 
+let measureTooltip = null;
 
 /* ============================
    INITIALIZATION
 ============================ */
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
-    fetchSupabaseData(); // Auto-load data when the page opens
+    fetchSupabaseData(); 
+    
+    // NEW: Allow "Escape" key to finish measuring
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && (measureMode === 'distance' || measureMode === 'area')) {
+            finishMeasure();
+        }
+    });
 });
 
 function initMap() {
@@ -92,11 +105,32 @@ function initMap() {
     });
     map.addLayer(markersGroup);
 
-    map.on('click', () => { closeDetail(); });
+    measureLayerGroup = L.featureGroup().addTo(map);
+
+    // Map Event Listeners (Includes Measure Tool Logic)
+    map.on('click', (e) => {
+        if (measureMode === 'distance' || measureMode === 'area') {
+            handleMeasureClick(e);
+        } else {
+            closeDetail();
+        }
+    });
+
+    map.on('mousemove', (e) => {
+        if ((measureMode === 'distance' || measureMode === 'area') && measurePoints.length > 0) {
+            handleMeasureMove(e);
+        }
+    });
+
+    map.on('dblclick', (e) => {
+        if (measureMode === 'distance' || measureMode === 'area') {
+            finishMeasure();
+        }
+    });
 }
 
 /* ============================
-   DATABASE FETCH (SUPABASE)
+   DATABASE FETCH
 ============================ */
 async function fetchSupabaseData() {
     showToast('Downloading data from secure database...', 'info');
@@ -107,7 +141,6 @@ async function fetchSupabaseData() {
         let startRow = 0;
         const batchSize = 1000;
 
-        // Loop to bypass the 1000-row limit and fetch all 6000+ rows
         while (isFetching) {
             const { data, error } = await db
                 .from('odp')
@@ -118,10 +151,9 @@ async function fetchSupabaseData() {
 
             if (data && data.length > 0) {
                 allData = allData.concat(data);
-                startRow += batchSize; // Move to the next batch
+                startRow += batchSize;
             }
 
-            // If it returns less than 1000, we have reached the end of the database
             if (!data || data.length < batchSize) {
                 isFetching = false; 
             }
@@ -138,10 +170,8 @@ async function fetchSupabaseData() {
         allData.forEach(row => {
             const normalized = {};
 
-            // Make it immune to uppercase/lowercase column names
             Object.keys(row).forEach(key => {
                 const k = key.trim().toLowerCase().replace(/[_\s]+/g, '');
-                
                 if (['name','sitename','site'].includes(k)) normalized.name = String(row[key]).trim();
                 else if (['latitude','lat','y'].includes(k)) normalized.latitude = parseFloat(row[key]);
                 else if (['longitude','lng','lon','long','x'].includes(k)) normalized.longitude = parseFloat(row[key]);
@@ -149,10 +179,8 @@ async function fetchSupabaseData() {
                 else normalized[key] = row[key]; 
             });
 
-            // Require Name, Lat, and Long
             if (!normalized.name || isNaN(normalized.latitude) || isNaN(normalized.longitude)) return; 
             
-            // Validate the color column
             if (!normalized.color || !validColors.includes(normalized.color)) {
                 normalized.color = 'green'; 
             }
@@ -206,6 +234,9 @@ function renderMarkers() {
 
         const marker = L.marker([site.latitude, site.longitude], { icon })
             .on('click', (e) => {
+                // If we are drawing a measurement, don't open the site details
+                if (measureMode === 'distance' || measureMode === 'area') return;
+                
                 L.DomEvent.stopPropagation(e);
                 selectSite(idx);
             });
@@ -215,12 +246,6 @@ function renderMarkers() {
         newMarkers.push(marker);
     });
 
-    if (!document.getElementById('tooltip-style')) {
-        const s = document.createElement('style');
-        s.id = 'tooltip-style';
-        s.textContent = `.site-tooltip { background:#1A2233 !important; color:#E6EDF3 !important; border:1px solid #2A3A50 !important; border-radius:8px !important; padding:4px 10px !important; font-family:'DM Sans',sans-serif !important; font-size:12px !important; font-weight:600 !important; box-shadow:0 4px 12px rgba(0,0,0,0.4) !important; } .site-tooltip::before { border-top-color:#1A2233 !important; }`;
-        document.head.appendChild(s);
-    }
     markersGroup.addLayers(newMarkers);
 }
 
@@ -298,7 +323,6 @@ function selectSite(idx) {
 
     showDetail(site);
 
-    // Routing Logic
     if (searchMarker) {
         const start = searchMarker.getLatLng();
         const end = L.latLng(site.latitude, site.longitude);
@@ -319,7 +343,6 @@ function selectSite(idx) {
     }
 }
 
-// Draw a Google-style layered walking route
 async function calculateAndDrawRoute(start, end) {
     if (routeLayerGroup) {
         map.removeLayer(routeLayerGroup);
@@ -341,14 +364,11 @@ async function calculateAndDrawRoute(start, end) {
         
         const route = data.routes[0];
         const geojson = route.geometry;
-        const distance = route.distance; // in meters
+        const distance = route.distance; 
         
-        // 1. Dark Blue Border Line
         const outlineLayer = L.geoJSON(geojson, {
             style: { color: '#1e40af', weight: 8, opacity: 0.8, lineCap: 'round', lineJoin: 'round' } 
         });
-        
-        // 2. Bright Blue Inner Line
         const innerLayer = L.geoJSON(geojson, {
             style: { color: '#3b82f6', weight: 4.5, opacity: 1.0, lineCap: 'round', lineJoin: 'round' } 
         });
@@ -369,7 +389,9 @@ function updateRouteUI(distance) {
     const container = document.getElementById('route-info-container');
     if (!container) return;
     
-    const metersStr = Math.round(distance).toLocaleString();
+    let distStr = distance < 1000 
+        ? `${Math.round(distance).toLocaleString()} m` 
+        : `${(distance / 1000).toFixed(2)} km`;
 
     container.innerHTML = `
         <div class="bg-[#3b82f6]/10 border border-[#3b82f6]/30 rounded-xl p-3 mb-4 flex items-center gap-4">
@@ -377,7 +399,7 @@ function updateRouteUI(distance) {
                 <i class="fa-solid fa-person-walking text-white text-lg"></i>
             </div>
             <div>
-                <div class="text-sm font-bold text-fg">${metersStr} <span class="text-muted font-normal text-xs ml-1">meters</span></div>
+                <div class="text-sm font-bold text-fg">${distStr}</div>
                 <div class="text-xs text-muted font-medium">Walking Distance</div>
             </div>
         </div>
@@ -405,9 +427,7 @@ function showDetail(site) {
                 <span>${site.latitude.toFixed(6)}, ${site.longitude.toFixed(6)}</span>
             </div>
         </div>
-        <!-- ROUTE INFO INJECTED HERE -->
         <div id="route-info-container"></div>
-        
         <div class="space-y-0">
             ${fields.length > 0 ? fields.map(([key, val]) => `
                 <div class="flex justify-between items-start py-2.5 border-b border-border/50 last:border-0">
@@ -417,7 +437,6 @@ function showDetail(site) {
             `).join('') : '<p class="text-sm text-muted">No additional details.</p>'}
         </div>
     `;
-
     panel.classList.add('open');
 }
 
@@ -448,9 +467,6 @@ function toggleFilter(color) {
     closeDetail();
 }
 
-/* ============================
-   COORDINATE SEARCH
-============================ */
 function searchCoord() {
     const input = document.getElementById('coord-input').value.trim();
     if (!input) return;
@@ -470,7 +486,6 @@ function searchCoord() {
     if (routeLayerGroup) { map.removeLayer(routeLayerGroup); routeLayerGroup = null; }
     closeDetail(); 
 
-    // Custom SVG to perfectly match the Classic Google Maps Red Pin
     const googlePinSVG = `
     <svg viewBox="0 0 40 54" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M20 0C8.954 0 0 8.954 0 20C0 35 20 54 20 54C20 54 40 35 40 20C40 8.954 31.046 0 20 0Z" fill="#EA4335" stroke="#ffffff" stroke-width="1.5"/>
@@ -512,6 +527,175 @@ function fitAll() {
     if(bounds.isValid()) {
         map.flyToBounds(bounds, { padding: [60, 60], duration: 0.8, maxZoom: 14 });
     }
+}
+
+/* ============================
+   NEW: MEASURE TOOL LOGIC (FIXED)
+============================ */
+function toggleMeasureTool() {
+    const toolbar = document.getElementById('measure-toolbar');
+    isMeasureToolOpen = !isMeasureToolOpen;
+    
+    if (isMeasureToolOpen) {
+        toolbar.classList.remove('hidden');
+        toolbar.classList.add('flex');
+        setMeasureMode('distance'); 
+    } else {
+        toolbar.classList.add('hidden');
+        toolbar.classList.remove('flex');
+        setMeasureMode('none');
+        clearMeasure();
+    }
+}
+
+function setMeasureMode(mode) {
+    measureMode = mode;
+    clearMeasure(); 
+
+    document.getElementById('btn-measure-dist').classList.remove('measure-btn-active');
+    document.getElementById('btn-measure-area').classList.remove('measure-btn-active');
+    
+    if (mode === 'distance') document.getElementById('btn-measure-dist').classList.add('measure-btn-active');
+    if (mode === 'area') document.getElementById('btn-measure-area').classList.add('measure-btn-active');
+
+    if (mode === 'distance' || mode === 'area') {
+        document.getElementById('map').classList.add('measuring-mode');
+        map.doubleClickZoom.disable(); 
+    } else {
+        document.getElementById('map').classList.remove('measuring-mode');
+        map.doubleClickZoom.enable();
+    }
+}
+
+function clearMeasure() {
+    measurePoints = [];
+    measureLayerGroup.clearLayers();
+    if (measureTempLayer) map.removeLayer(measureTempLayer);
+    if (measureTooltip) map.removeLayer(measureTooltip);
+    measureTempLayer = null;
+    measureTooltip = null;
+    document.getElementById('measure-result').innerText = '0 m';
+}
+
+function handleMeasureClick(e) {
+    measurePoints.push(e.latlng);
+
+    L.circleMarker(e.latlng, {
+        radius: 4, color: '#F0883E', fillColor: '#fff', fillOpacity: 1, weight: 2
+    }).addTo(measureLayerGroup);
+
+    if (measurePoints.length > 1) {
+        measureLayerGroup.clearLayers(); 
+
+        measurePoints.forEach(p => {
+            L.circleMarker(p, { radius: 4, color: '#F0883E', fillColor: '#fff', fillOpacity: 1, weight: 2 }).addTo(measureLayerGroup);
+        });
+
+        if (measureMode === 'distance') {
+            L.polyline(measurePoints, { color: '#F0883E', weight: 4 }).addTo(measureLayerGroup);
+        } else if (measureMode === 'area') {
+            L.polygon(measurePoints, { color: '#F0883E', weight: 4, fillColor: '#F0883E', fillOpacity: 0.2 }).addTo(measureLayerGroup);
+        }
+    }
+    updateMeasureMath();
+}
+
+function handleMeasureMove(e) {
+    if (measureTempLayer) map.removeLayer(measureTempLayer);
+    if (measureTooltip) map.removeLayer(measureTooltip);
+
+    const tempPoints = [...measurePoints, e.latlng];
+
+    if (measureMode === 'distance') {
+        measureTempLayer = L.polyline(tempPoints, { color: '#F0883E', weight: 4, dashArray: '8, 8' }).addTo(map);
+    } else if (measureMode === 'area') {
+        measureTempLayer = L.polygon(tempPoints, { color: '#F0883E', weight: 4, dashArray: '8, 8', fillColor: '#F0883E', fillOpacity: 0.2 }).addTo(map);
+    }
+
+    measureTooltip = L.tooltip({
+        permanent: true, direction: 'right', className: 'measure-tooltip', offset: [15, 0]
+    }).setLatLng(e.latlng);
+
+    const resultStr = updateMeasureMath(tempPoints);
+    measureTooltip.setContent(resultStr).addTo(map);
+}
+
+// FIXED: This now properly ends the drawing without deleting it!
+function finishMeasure() {
+    if (measureMode !== 'distance' && measureMode !== 'area') return;
+
+    // A browser double-click fires 2 single clicks first. This removes the accidental duplicate click.
+    if (measurePoints.length > 0) {
+        measurePoints.pop();
+    }
+    
+    if (measureTempLayer) map.removeLayer(measureTempLayer);
+    if (measureTooltip) map.removeLayer(measureTooltip);
+    measureTempLayer = null;
+    measureTooltip = null;
+    
+    measureLayerGroup.clearLayers();
+    measurePoints.forEach(p => {
+        L.circleMarker(p, { radius: 4, color: '#F0883E', fillColor: '#fff', fillOpacity: 1, weight: 2 }).addTo(measureLayerGroup);
+    });
+
+    if (measureMode === 'distance') {
+        L.polyline(measurePoints, { color: '#F0883E', weight: 4 }).addTo(measureLayerGroup);
+    } else if (measureMode === 'area') {
+        L.polygon(measurePoints, { color: '#F0883E', weight: 4, fillColor: '#F0883E', fillOpacity: 0.2 }).addTo(measureLayerGroup);
+    }
+
+    updateMeasureMath(measurePoints);
+    
+    // Change state to 'finished' so moving the mouse doesn't draw anymore
+    measureMode = 'finished';
+    
+    document.getElementById('map').classList.remove('measuring-mode');
+    document.getElementById('btn-measure-dist').classList.remove('measure-btn-active');
+    document.getElementById('btn-measure-area').classList.remove('measure-btn-active');
+    
+    // Re-enable zooming safely
+    setTimeout(() => { map.doubleClickZoom.enable(); }, 300);
+}
+
+function updateMeasureMath(pointsArray = measurePoints) {
+    if (pointsArray.length < 2) return '0 m';
+
+    let resultStr = '0 m';
+
+    if (measureMode === 'distance' || measureMode === 'finished') {
+        let totalMeters = 0;
+        for (let i = 0; i < pointsArray.length - 1; i++) {
+            totalMeters += pointsArray[i].distanceTo(pointsArray[i+1]);
+        }
+        
+        if (totalMeters < 1000) {
+            resultStr = `${Math.round(totalMeters).toLocaleString()} m`;
+        } else {
+            resultStr = `${(totalMeters / 1000).toFixed(2)} km`;
+        }
+
+    } 
+    
+    // Added 'finished' check here too, to keep math accurate after drawing stops
+    if (measureMode === 'area' || (measureMode === 'finished' && pointsArray.length > 2)) {
+        if (pointsArray.length < 3) return '0 m²';
+        
+        const turfCoords = pointsArray.map(p => [p.lng, p.lat]);
+        turfCoords.push([pointsArray[0].lng, pointsArray[0].lat]);
+        
+        const polygon = turf.polygon([turfCoords]);
+        const areaMeters = turf.area(polygon);
+
+        if (areaMeters < 10000) {
+            resultStr = `${Math.round(areaMeters).toLocaleString()} m²`;
+        } else {
+            resultStr = `${(areaMeters / 1000000).toFixed(3)} km²`;
+        }
+    }
+
+    document.getElementById('measure-result').innerText = resultStr;
+    return resultStr;
 }
 
 /* ============================
