@@ -1,8 +1,15 @@
 /* ============================
    SUPABASE SETUP
 ============================ */
+// Replace these with your project URL and public Anon key!
 const SUPABASE_URL = 'https://ektgxmnhlbpgcemepcfi.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_gswwM7fTjhzZIfVP2VHDSA_Ixs4wa29';
+
+const POLES_FILE_URLS = [
+    'https://ektgxmnhlbpgcemepcfi.supabase.co/storage/v1/object/public/gis_data/TIANG%20STO%20TIMIKA.kmz',
+    'https://ektgxmnhlbpgcemepcfi.supabase.co/storage/v1/object/public/gis_data/TIANG%20STO%20TEMBAGAPURA.kmz',
+    'https://ektgxmnhlbpgcemepcfi.supabase.co/storage/v1/object/public/gis_data/TIANG%20STO%20KUALA%20KENCANA.kmz'
+];
 
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -33,16 +40,19 @@ let activeFilter = null;
 let listSearchQuery = "";
 let searchMarker = null;
 
-// Route Layer Group
 let routeLayerGroup = null;
 
-// MEASURE TOOL STATE
 let isMeasureToolOpen = false;
-let measureMode = 'none'; // 'distance', 'area', 'finished', or 'none'
+let measureMode = 'none'; 
 let measurePoints = [];
 let measureLayerGroup = null; 
 let measureTempLayer = null; 
 let measureTooltip = null;
+
+// POLES (KML/KMZ) STATE
+let polesGeoJSONData = null; 
+let polesLayer = null;       
+let showPoles = false;       
 
 /* ============================
    INITIALIZATION
@@ -51,7 +61,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initMap();
     fetchSupabaseData(); 
     
-    // NEW: Allow "Escape" key to finish measuring
+    // Automatically download poles in the background if URLs exist
+    const hasValidPoleUrls = POLES_FILE_URLS.some(url => url && !url.includes('YOUR_STORAGE'));
+    if (hasValidPoleUrls) {
+        fetchPolesFromCloud();
+    }
+    
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && (measureMode === 'distance' || measureMode === 'area')) {
             finishMeasure();
@@ -107,7 +122,6 @@ function initMap() {
 
     measureLayerGroup = L.featureGroup().addTo(map);
 
-    // Map Event Listeners (Includes Measure Tool Logic)
     map.on('click', (e) => {
         if (measureMode === 'distance' || measureMode === 'area') {
             handleMeasureClick(e);
@@ -127,13 +141,155 @@ function initMap() {
             finishMeasure();
         }
     });
+
+    map.on('zoomend', () => {
+        checkPolesVisibility();
+    });
+}
+
+/* ============================
+   POLES (KML/KMZ) CLOUD LOGIC
+============================ */
+async function fetchPolesFromCloud() {
+    const loader = document.getElementById('poles-loader');
+    loader.innerText = "Downloading poles...";
+
+    // Filter out empty or placeholder URLs
+    const validUrls = POLES_FILE_URLS.filter(url => url && !url.includes('YOUR_STORAGE'));
+    if (validUrls.length === 0) {
+        loader.innerText = "No pole URLs configured";
+        return;
+    }
+
+    let allFeatures = [];
+    let completed = 0;
+
+    // Fetch all files concurrently
+    const fetchPromises = validUrls.map(async (url) => {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
+            const isKMZ = url.toLowerCase().endsWith('.kmz');
+            let kmlText = "";
+
+            if (isKMZ) {
+                const arrayBuffer = await response.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                
+                let kmlFileName = null;
+                zip.forEach((relativePath) => {
+                    if (relativePath.toLowerCase().endsWith('.kml')) {
+                        kmlFileName = relativePath;
+                    }
+                });
+
+                if (!kmlFileName) throw new Error("No KML file found inside the KMZ archive.");
+                kmlText = await zip.file(kmlFileName).async("text");
+            } else {
+                kmlText = await response.text();
+            }
+
+            const parser = new DOMParser();
+            const kmlDocument = parser.parseFromString(kmlText, 'text/xml');
+            const geojson = toGeoJSON.kml(kmlDocument);
+
+            // Add the features from this file to our master list
+            if (geojson.features && geojson.features.length > 0) {
+                allFeatures.push(...geojson.features);
+            }
+        } catch (err) {
+            console.error(`Error loading pole file (${url}):`, err);
+        } finally {
+            completed++;
+            loader.innerText = `Downloading files (${completed}/${validUrls.length})...`;
+        }
+    });
+
+    // Wait for all downloads and parsing to finish
+    await Promise.all(fetchPromises);
+
+    // Create a combined GeoJSON object
+    polesGeoJSONData = {
+        type: "FeatureCollection",
+        features: allFeatures
+    };
+
+    if (allFeatures.length === 0) {
+        loader.innerText = "No poles found in files";
+        return;
+    }
+
+    // Build the map layer with the combined data
+    buildPolesLayer();
+    loader.innerText = `Ready (${allFeatures.length.toLocaleString()} poles)`;
+}
+
+function buildPolesLayer() {
+    if (polesLayer) {
+        map.removeLayer(polesLayer);
+    }
+
+    polesLayer = L.geoJSON(polesGeoJSONData, {
+        pointToLayer: function (feature, latlng) {
+            return L.circleMarker(latlng, {
+                radius: 3.5,
+                fillColor: "#94a3b8", // Slate Gray
+                color: "#0f172a",     // Dark Gray Border
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.9
+            });
+        },
+        onEachFeature: function (feature, layer) {
+            if (feature.properties && feature.properties.name) {
+                layer.bindPopup(`<div class="text-sm font-bold">${feature.properties.name}</div>`);
+            }
+        }
+    });
+}
+
+function togglePolesLayer() {
+    if (!polesGeoJSONData) {
+        showToast('Poles are still downloading or missing URL.', 'error');
+        return;
+    }
+    showPoles = !showPoles;
+    updatePolesUI();
+    checkPolesVisibility();
+}
+
+function updatePolesUI() {
+    const statusEl = document.getElementById('poles-status');
+    if (showPoles) {
+        statusEl.innerText = "ON";
+        statusEl.classList.remove('text-red-400');
+        statusEl.classList.add('text-green-400');
+    } else {
+        statusEl.innerText = "OFF";
+        statusEl.classList.remove('text-green-400');
+        statusEl.classList.add('text-red-400');
+    }
+}
+
+function checkPolesVisibility() {
+    if (!polesLayer || !showPoles) {
+        if (polesLayer && map.hasLayer(polesLayer)) map.removeLayer(polesLayer);
+        return;
+    }
+
+    if (map.getZoom() >= 14) {
+        if (!map.hasLayer(polesLayer)) map.addLayer(polesLayer);
+    } else {
+        if (map.hasLayer(polesLayer)) map.removeLayer(polesLayer);
+    }
 }
 
 /* ============================
    DATABASE FETCH
 ============================ */
 async function fetchSupabaseData() {
-    showToast('Downloading data from secure database...', 'info');
+    showToast('Downloading odp from secure database...', 'info');
 
     try {
         let allData = [];
@@ -189,7 +345,7 @@ async function fetchSupabaseData() {
         });
 
         loadSites(parsed);
-        showToast(`Loaded all ${parsed.length} sites from database!`, 'success');
+        showToast(`Loaded ${parsed.length} odp from database!`, 'success');
 
     } catch (err) {
         console.error('Supabase error:', err.message);
@@ -198,7 +354,7 @@ async function fetchSupabaseData() {
 }
 
 /* ============================
-   LOAD & RENDER
+   LOAD & RENDER SITES
 ============================ */
 function loadSites(data) {
     sites = data;
@@ -234,7 +390,6 @@ function renderMarkers() {
 
         const marker = L.marker([site.latitude, site.longitude], { icon })
             .on('click', (e) => {
-                // If we are drawing a measurement, don't open the site details
                 if (measureMode === 'distance' || measureMode === 'area') return;
                 
                 L.DomEvent.stopPropagation(e);
@@ -530,7 +685,7 @@ function fitAll() {
 }
 
 /* ============================
-   NEW: MEASURE TOOL LOGIC (FIXED)
+   MEASURE TOOL LOGIC 
 ============================ */
 function toggleMeasureTool() {
     const toolbar = document.getElementById('measure-toolbar');
@@ -620,11 +775,9 @@ function handleMeasureMove(e) {
     measureTooltip.setContent(resultStr).addTo(map);
 }
 
-// FIXED: This now properly ends the drawing without deleting it!
 function finishMeasure() {
     if (measureMode !== 'distance' && measureMode !== 'area') return;
 
-    // A browser double-click fires 2 single clicks first. This removes the accidental duplicate click.
     if (measurePoints.length > 0) {
         measurePoints.pop();
     }
@@ -647,14 +800,12 @@ function finishMeasure() {
 
     updateMeasureMath(measurePoints);
     
-    // Change state to 'finished' so moving the mouse doesn't draw anymore
     measureMode = 'finished';
     
     document.getElementById('map').classList.remove('measuring-mode');
     document.getElementById('btn-measure-dist').classList.remove('measure-btn-active');
     document.getElementById('btn-measure-area').classList.remove('measure-btn-active');
     
-    // Re-enable zooming safely
     setTimeout(() => { map.doubleClickZoom.enable(); }, 300);
 }
 
@@ -677,7 +828,6 @@ function updateMeasureMath(pointsArray = measurePoints) {
 
     } 
     
-    // Added 'finished' check here too, to keep math accurate after drawing stops
     if (measureMode === 'area' || (measureMode === 'finished' && pointsArray.length > 2)) {
         if (pointsArray.length < 3) return '0 m²';
         
