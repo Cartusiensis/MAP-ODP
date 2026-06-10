@@ -42,6 +42,40 @@
     </script>
 </head>
 <body class="bg-bg text-fg font-body">
+    <!-- AUTHENTICATION OVERLAY -->
+    <div id="auth-overlay" class="fixed inset-0 z-[9999] bg-bg flex items-center justify-center transition-opacity duration-300">
+        <div class="bg-card border border-border rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+            <div class="flex justify-center mb-6">
+                <div class="w-12 h-12 rounded-xl bg-accent/15 flex items-center justify-center">
+                    <i class="fa-solid fa-map-location-dot text-accent text-xl"></i>
+                </div>
+            </div>
+            <h2 class="text-2xl font-display font-bold text-fg text-center mb-2">POMAKO Login</h2>
+            <p class="text-sm text-muted text-center mb-6">Enter your credentials to access the map.</p>
+            
+            <form id="login-form" onsubmit="handleAuthFlow(event)" class="flex flex-col gap-4">
+                <!-- Step 1: Email -->
+                <div id="email-step">
+                    <label class="text-[11px] font-semibold uppercase tracking-wider text-muted mb-1.5 block">Registered Email</label>
+                    <input id="auth-email" type="email" required placeholder="admin@example.com"
+                        class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-fg placeholder-muted/50 focus:outline-none focus:border-accent/60 transition">
+                </div>
+                
+                <!-- Step 2: OTP (Hidden initially) -->
+                <div id="otp-step" class="hidden">
+                    <label class="text-[11px] font-semibold uppercase tracking-wider text-accent mb-1.5 block">Enter 6-Digit Code</label>
+                    <input id="auth-otp" type="text" placeholder="123456"
+                        class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-fg placeholder-muted/50 focus:outline-none focus:border-accent/60 transition tracking-widest text-center font-mono text-lg">
+                    <p class="text-[10px] text-muted text-center mt-2">Check your spam folder if you don't see it.</p>
+                </div>
+
+                <button type="submit" id="auth-submit-btn" class="w-full bg-accent hover:bg-accent-h text-white rounded-lg py-2.5 text-sm font-semibold transition mt-2 flex justify-center items-center gap-2">
+                    <span>Send Login Code</span>
+                </button>
+                <div id="auth-error" class="hidden text-xs text-red-400 text-center mt-1 font-medium"></div>
+            </form>
+        </div>
+    </div>
 
     <div id="toast-container" class="fixed top-4 right-4 z-[2000] flex flex-col gap-2 pointer-events-none"></div>
     <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
@@ -134,6 +168,9 @@
                 <div class="flex gap-2">
                     <button onclick="fetchSupabaseData()" class="flex-1 flex items-center justify-center gap-2 bg-accent hover:bg-accent-h text-white rounded-lg py-2.5 text-sm font-semibold transition shadow-lg shadow-accent/20">
                         <i class="fa-solid fa-rotate-right text-xs"></i> Refresh Odp
+                    </button>
+                    <button onclick="handleLogout()" class="flex items-center justify-center bg-card hover:bg-red-900/30 border border-border hover:border-red-500/50 text-muted hover:text-red-400 rounded-lg py-2.5 px-3 text-sm transition" title="Logout">
+                        <i class="fa-solid fa-right-from-bracket"></i>
                     </button>
                 </div>
                 <div class="flex gap-2">

@@ -57,14 +57,14 @@ let showPoles = false;
 /* ============================
    INITIALIZATION
 ============================ */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initMap();
-    fetchSupabaseData(); 
     
-    // Automatically download poles in the background if URLs exist
-    const hasValidPoleUrls = POLES_FILE_URLS.some(url => url && !url.includes('YOUR_STORAGE'));
-    if (hasValidPoleUrls) {
-        fetchPolesFromCloud();
+    // Check if user is already logged in
+    const { data: { session } } = await db.auth.getSession();
+    
+    if (session) {
+        unlockApp();
     }
     
     document.addEventListener('keydown', (e) => {
@@ -73,6 +73,93 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
+/* ============================
+   AUTHENTICATION (OTP Flow)
+============================ */
+let authStep = 'email'; // Tracks whether we are sending email or verifying code
+
+async function handleAuthFlow(e) {
+    e.preventDefault();
+    const email = document.getElementById('auth-email').value.trim();
+    const btn = document.getElementById('auth-submit-btn');
+    const errorEl = document.getElementById('auth-error');
+    
+    errorEl.classList.add('hidden');
+
+    if (authStep === 'email') {
+        // --- STEP 1: SEND OTP ---
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Sending Code...';
+        
+        const { error } = await db.auth.signInWithOtp({ 
+            email: email,
+            options: {
+                // Should Supabase redirect them? We'll let it just verify on this page.
+                shouldCreateUser: false // Extra security layer
+            }
+        });
+
+        if (error) {
+            btn.innerHTML = '<span>Send Login Code</span>';
+            errorEl.innerText = error.message;
+            errorEl.classList.remove('hidden');
+        } else {
+            // Success! Show OTP field
+            authStep = 'otp';
+            document.getElementById('email-step').classList.add('hidden');
+            document.getElementById('otp-step').classList.remove('hidden');
+            
+            // Make email input readonly just in case we show it again later
+            document.getElementById('auth-email').readOnly = true; 
+            
+            btn.innerHTML = '<span>Verify & Login</span>';
+            showToast('Code sent! Check your email.', 'success');
+        }
+
+    } else if (authStep === 'otp') {
+        // --- STEP 2: VERIFY OTP ---
+        const token = document.getElementById('auth-otp').value.trim();
+        if (!token) return;
+
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Verifying...';
+
+        const { data, error } = await db.auth.verifyOtp({
+            email: email,
+            token: token,
+            type: 'email'
+        });
+
+        if (error) {
+            btn.innerHTML = '<span>Verify & Login</span>';
+            errorEl.innerText = "Invalid or expired code. Try again.";
+            errorEl.classList.remove('hidden');
+        } else {
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> Success';
+            unlockApp();
+        }
+    }
+}
+
+async function handleLogout() {
+    await db.auth.signOut();
+    // Reload the page to reset all map states and show login again
+    window.location.reload();
+}
+
+function unlockApp() {
+    // Hide the login screen
+    const overlay = document.getElementById('auth-overlay');
+    overlay.classList.add('opacity-0', 'pointer-events-none');
+    setTimeout(() => overlay.classList.add('hidden'), 300);
+
+    // Fetch the data ONLY after successful login
+    fetchSupabaseData(); 
+    
+    const hasValidPoleUrls = POLES_FILE_URLS.some(url => url && !url.includes('YOUR_STORAGE'));
+    if (hasValidPoleUrls) {
+        fetchPolesFromCloud();
+    }
+}
 
 function initMap() {
     const googleStreets = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
