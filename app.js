@@ -64,7 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const { data: { session } } = await db.auth.getSession();
     
     if (session) {
-        unlockApp();
+        checkSessionAge(session);
     }
     
     document.addEventListener('keydown', (e) => {
@@ -158,6 +158,35 @@ function unlockApp() {
     const hasValidPoleUrls = POLES_FILE_URLS.some(url => url && !url.includes('YOUR_STORAGE'));
     if (hasValidPoleUrls) {
         fetchPolesFromCloud();
+    }
+}
+
+function checkSessionAge(session) {
+    if (!session || !session.user || !session.user.last_sign_in_at) {
+        handleLogout();
+        return;
+    }
+
+    // Get the exact time they logged in via OTP
+    const loginTime = new Date(session.user.last_sign_in_at).getTime();
+    const currentTime = new Date().getTime();
+    
+    // Calculate how many hours have passed
+    const hoursPassed = (currentTime - loginTime) / (1000 * 60 * 60);
+
+    if (hoursPassed >= 24) {
+        // It has been 24 hours or more, force a logout!
+        handleLogout();
+    } else {
+        // Still within 24 hours, unlock the app
+        unlockApp();
+
+        // Set a timer to kick them out exactly when the 24 hours is up 
+        // (in case they leave the map tab open in the background all day)
+        const msUntilExpiry = (24 * 60 * 60 * 1000) - (currentTime - loginTime);
+        setTimeout(() => {
+            handleLogout();
+        }, msUntilExpiry);
     }
 }
 
