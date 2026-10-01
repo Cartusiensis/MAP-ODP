@@ -31,10 +31,17 @@ const COLOR_LABELS = {
     black: 'Black'
 };
 
-let sites = [];
+let dbSites = [];       // Holds Supabase data
+let importedSites = []; // Holds pasted spreadsheet data
+let sites = [];         // Combined array for the map to read
+
+let parsedImportHeaders = [];
+let parsedImportData = [];
+
 let markersMap = {}; 
 let map = null;
 let markersGroup = null; 
+let importedGroup = null; // New layer specifically for unclustered houses
 let selectedIdx = null;
 let activeFilter = null;
 let listSearchQuery = "";
@@ -236,6 +243,7 @@ function initMap() {
     });
     map.addLayer(markersGroup);
 
+    importedGroup = L.featureGroup().addTo(map);
     measureLayerGroup = L.featureGroup().addTo(map);
 
     map.on('click', (e) => {
@@ -460,7 +468,7 @@ async function fetchSupabaseData() {
             parsed.push(normalized);
         });
 
-        loadSites(parsed);
+        loadDbSites(parsed);
         showToast(`Loaded ${parsed.length} odp from database!`, 'success');
 
     } catch (err) {
@@ -472,61 +480,88 @@ async function fetchSupabaseData() {
 /* ============================
    LOAD & RENDER SITES
 ============================ */
-function loadSites(data) {
-    sites = data;
+function loadDbSites(data) {
+    dbSites = data;
+    combineAndRender();
+    if (dbSites.length > 0) setTimeout(() => fitAll(), 300);
+}
+
+function combineAndRender() {
+    // Merge database and imported sites
+    sites = [...dbSites, ...importedSites];
+    
     selectedIdx = null;
-    activeFilter = null;
-    listSearchQuery = "";
-    document.getElementById('list-search-input').value = "";
     
     renderMarkers();
     renderLegend();
     renderSiteList();
     closeDetail();
-
-    if (sites.length > 0) {
-        setTimeout(() => fitAll(), 300);
-    }
 }
 
 function renderMarkers() {
     markersGroup.clearLayers();
+    if (importedGroup) importedGroup.clearLayers();
+    
     markersMap = {};
     const newMarkers = [];
+    const newImported = [];
 
     sites.forEach((site, idx) => {
         if (activeFilter && site.color !== activeFilter) return;
 
+        let isImported = site.isImported;
+        let html = '';
+        if (isImported) {
+            html = `<div class="marker-house" id="marker-dot-${idx}" data-idx="${idx}"><i class="fa-solid fa-house"></i></div>`;
+        } else {
+            html = `<div class="marker-dot" id="marker-dot-${idx}" data-idx="${idx}" style="background:${COLOR_MAP[site.color] || COLOR_MAP.green}"></div>`;
+        }
+
         const icon = L.divIcon({
             className: 'marker-wrapper',
-            html: `<div class="marker-dot" id="marker-dot-${idx}" data-idx="${idx}" style="background:${COLOR_MAP[site.color] || COLOR_MAP.green}"></div>`,
-            iconSize: [14, 14], 
-            iconAnchor: [7, 7]
+            html: html,
+            iconSize: isImported ? [28, 28] : [14, 14], // Made houses slightly bigger
+            iconAnchor: isImported ? [14, 14] : [7, 7]
         });
 
-        const marker = L.marker([site.latitude, site.longitude], { icon })
-            .on('click', (e) => {
-                if (measureMode === 'distance' || measureMode === 'area') return;
-                
-                L.DomEvent.stopPropagation(e);
-                selectSite(idx);
-            });
+        // Add zIndexOffset so houses always sit on top of ODP dots
+        const marker = L.marker([site.latitude, site.longitude], { 
+            icon: icon,
+            zIndexOffset: isImported ? 1000 : 0 
+        }).on('click', (e) => {
+            if (measureMode === 'distance' || measureMode === 'area') return;
+            L.DomEvent.stopPropagation(e);
+            selectSite(idx);
+        });
 
-        marker.bindTooltip(site.name, { direction: 'top', offset: [0, -10], className: 'site-tooltip' });
+        marker.bindTooltip(site.name, { direction: 'top', offset: [0, -12], className: 'site-tooltip' });
         markersMap[idx] = marker;
-        newMarkers.push(marker);
+        
+        if (isImported) {
+            newImported.push(marker);
+        } else {
+            newMarkers.push(marker);
+        }
     });
 
     markersGroup.addLayers(newMarkers);
+    if (importedGroup) {
+        newImported.forEach(marker => importedGroup.addLayer(marker));
+    };
 }
 
 function renderLegend() {
     const legend = document.getElementById('legend');
     const counts = {};
     Object.keys(COLOR_MAP).forEach(c => counts[c] = 0);
-    sites.forEach(s => { if (counts[s.color] !== undefined) counts[s.color]++; });
+    counts['imported'] = 0; // Tracking imported separately
 
-    legend.innerHTML = Object.keys(COLOR_MAP).map(color => {
+    sites.forEach(s => { 
+        if (s.isImported) counts['imported']++;
+        else if (counts[s.color] !== undefined) counts[s.color]++; 
+    });
+
+    let html = Object.keys(COLOR_MAP).map(color => {
         const filtered = activeFilter === color;
         return `<div class="legend-dot ${filtered ? 'filtered' : ''} flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-card border border-border text-xs text-muted hover:text-fg transition" onclick="toggleFilter('${color}')">
             <span class="w-3 h-3 rounded-full inline-block" style="background:${COLOR_MAP[color]}; box-shadow:0 0 6px ${COLOR_MAP[color]}44"></span>
@@ -534,8 +569,21 @@ function renderLegend() {
             <span class="text-[10px] font-bold text-fg/50">${counts[color]}</span>
         </div>`;
     }).join('');
+
+    // Add imported legend item if data exists
+    if (counts['imported'] > 0) {
+        const filtered = activeFilter === 'imported';
+        html += `<div class="legend-dot ${filtered ? 'filtered' : ''} flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#3b82f6]/10 border border-[#3b82f6]/50 text-xs text-[#3b82f6] hover:text-[#60a5fa] transition mt-1 w-full" onclick="toggleFilter('imported')">
+            <i class="fa-solid fa-house text-[10px]"></i>
+            <span class="font-semibold">Imported Paste</span>
+            <span class="text-[10px] font-bold opacity-70 ml-auto">${counts['imported']}</span>
+        </div>`;
+    }
+
+    legend.innerHTML = html;
     document.getElementById('total-count').textContent = sites.length;
 }
+
 
 function handleListSearch(e) {
     listSearchQuery = e.target.value.toLowerCase().trim();
@@ -565,19 +613,24 @@ function renderSiteList() {
 
     let html = displayList.map(site => {
         const isSelected = selectedIdx === site._idx;
+        let iconHtml = site.isImported 
+            ? `<div class="w-4 h-4 rounded flex items-center justify-center bg-[#3b82f6] text-white flex-shrink-0 text-[8px]"><i class="fa-solid fa-house"></i></div>`
+            : `<span class="w-3.5 h-3.5 rounded-full flex-shrink-0" style="background:${COLOR_MAP[site.color] || COLOR_MAP.green}; box-shadow:0 0 8px ${COLOR_MAP[site.color] || COLOR_MAP.green}55"></span>`;
+            
         return `<div class="site-item ${isSelected ? 'selected' : ''} flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer" onclick="selectSite(${site._idx})" data-idx="${site._idx}">
-            <span class="w-3.5 h-3.5 rounded-full flex-shrink-0" style="background:${COLOR_MAP[site.color] || COLOR_MAP.green}; box-shadow:0 0 8px ${COLOR_MAP[site.color] || COLOR_MAP.green}55"></span>
+            ${iconHtml}
             <div class="min-w-0 flex-1">
-                <div class="text-sm font-semibold text-fg truncate">${escHtml(site.name)}</div>
+                <div class="text-sm font-semibold ${site.isImported ? 'text-[#60a5fa]' : 'text-fg'} truncate">${escHtml(site.name)}</div>
             </div>
         </div>`;
     }).join('');
 
     if (filtered.length > displayLimit) {
-        html += `<div class="text-center text-[10px] text-muted py-2 bg-card/50 rounded-lg mt-2 mb-1 border border-dashed border-border">Showing 100 of ${filtered.length}. Use search to narrow down.</div>`;
+        html += `<div class="text-center text-[10px] text-muted py-2 bg-card/50 rounded-lg mt-2 mb-1 border border-dashed border-border">Showing 100 of ${filtered.length}. Use search.</div>`;
     }
     list.innerHTML = html;
 }
+
 
 /* ============================
    SELECTION, DETAIL & ROUTING
@@ -598,18 +651,28 @@ function selectSite(idx) {
         const start = searchMarker.getLatLng();
         const end = L.latLng(site.latitude, site.longitude);
         
-        document.querySelectorAll('.marker-dot').forEach(dot => dot.classList.remove('active'));
+        // Target both dots and houses when clearing active state
+        document.querySelectorAll('.marker-dot, .marker-house').forEach(dot => dot.classList.remove('active'));
         const dot = document.getElementById(`marker-dot-${idx}`);
         if (dot) dot.classList.add('active');
 
         calculateAndDrawRoute(start, end);
     } else {
         if (targetMarker) {
-            markersGroup.zoomToShowLayer(targetMarker, () => {
-                document.querySelectorAll('.marker-dot').forEach(dot => dot.classList.remove('active'));
+            if (site.isImported) {
+                // Bypass cluster zooming for houses, just fly there directly
+                map.flyTo([site.latitude, site.longitude], 18, { duration: 0.6 });
+                document.querySelectorAll('.marker-dot, .marker-house').forEach(dot => dot.classList.remove('active'));
                 const dot = document.getElementById(`marker-dot-${idx}`);
                 if (dot) dot.classList.add('active');
-            });
+            } else {
+                // Standard clustered ODP zooming
+                markersGroup.zoomToShowLayer(targetMarker, () => {
+                    document.querySelectorAll('.marker-dot, .marker-house').forEach(dot => dot.classList.remove('active'));
+                    const dot = document.getElementById(`marker-dot-${idx}`);
+                    if (dot) dot.classList.add('active');
+                });
+            }
         }
     }
 }
@@ -684,7 +747,7 @@ function showDetail(site) {
 
     bar.style.background = COLOR_MAP[site.color] || COLOR_MAP.green;
 
-    const skipKeys = new Set(['name','latitude','longitude','color']);
+    const skipKeys = new Set(['name','latitude','longitude','color','isImported']);
     const fields = Object.entries(site).filter(([k]) => !skipKeys.has(k));
 
     content.innerHTML = `
@@ -790,13 +853,19 @@ function clearSearchPin() {
 }
 
 function fitAll() {
-    if (Object.keys(markersMap).length === 0) {
-        showToast('No sites to fit', 'error');
-        return;
+    let bounds = L.latLngBounds();
+    
+    if (markersGroup && markersGroup.getLayers().length > 0) {
+        bounds.extend(markersGroup.getBounds());
     }
-    const bounds = markersGroup.getBounds();
+    if (importedGroup && importedGroup.getLayers().length > 0) {
+        bounds.extend(importedGroup.getBounds());
+    }
+    
     if(bounds.isValid()) {
         map.flyToBounds(bounds, { padding: [60, 60], duration: 0.8, maxZoom: 14 });
+    } else {
+        showToast('No sites to fit', 'error');
     }
 }
 
@@ -997,4 +1066,139 @@ function escHtml(str) {
     const d = document.createElement('div');
     d.textContent = str;
     return d.innerHTML;
+}
+
+
+/* ============================
+   IMPORT DATA FEATURE
+============================ */
+function openImportModal() {
+    const overlay = document.getElementById('import-overlay');
+    overlay.classList.remove('hidden');
+    // slight delay to allow display:block to apply before animating opacity
+    setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+    
+    // Clear previous
+    document.getElementById('import-textarea').value = '';
+    document.getElementById('import-step-1').classList.remove('hidden');
+    document.getElementById('import-step-2').classList.add('hidden');
+    document.getElementById('import-step-2').classList.remove('flex');
+}
+
+function closeImportModal() {
+    const overlay = document.getElementById('import-overlay');
+    overlay.classList.add('opacity-0');
+    setTimeout(() => overlay.classList.add('hidden'), 300);
+}
+
+// Listen for paste event inside the textarea
+document.getElementById('import-textarea').addEventListener('input', (e) => {
+    const rawText = e.target.value.trim();
+    if (!rawText) return;
+
+    // Excel/Sheets separates columns with Tabs (\t) and rows with Newlines (\n)
+    const rows = rawText.split('\n').filter(r => r.trim() !== '');
+    if (rows.length < 2) {
+        showToast('Not enough data. Please include headers.', 'error');
+        e.target.value = '';
+        return;
+    }
+
+    parsedImportHeaders = rows[0].split('\t').map(h => h.trim());
+    parsedImportData = rows.slice(1).map(row => row.split('\t').map(c => c.trim()));
+
+    // Populate dropdowns
+    const selects = ['import-map-name', 'import-map-lat', 'import-map-lng'];
+    selects.forEach(id => {
+        const el = document.getElementById(id);
+        el.innerHTML = '';
+        parsedImportHeaders.forEach((header, index) => {
+            el.innerHTML += `<option value="${index}">${header}</option>`;
+        });
+    });
+
+    // Auto-guess columns (Optional but nice UX)
+    parsedImportHeaders.forEach((h, i) => {
+        const lower = h.toLowerCase();
+        if (lower.includes('name') || lower.includes('site') || lower.includes('title')) document.getElementById('import-map-name').value = i;
+        if (lower.includes('lat') || lower.includes('y')) document.getElementById('import-map-lat').value = i;
+        if (lower.includes('lon') || lower.includes('lng') || lower.includes('x')) document.getElementById('import-map-lng').value = i;
+    });
+
+    document.getElementById('import-row-count').innerText = parsedImportData.length;
+    document.getElementById('import-step-1').classList.add('hidden');
+    
+    document.getElementById('import-step-2').classList.remove('hidden');
+    document.getElementById('import-step-2').classList.add('flex');
+});
+
+function processImport() {
+    const nameIdx = parseInt(document.getElementById('import-map-name').value);
+    const latIdx = parseInt(document.getElementById('import-map-lat').value);
+    const lngIdx = parseInt(document.getElementById('import-map-lng').value);
+
+    let validCount = 0;
+    const newSites = [];
+
+    parsedImportData.forEach(row => {
+        const lat = parseFloat(row[latIdx]);
+        const lng = parseFloat(row[lngIdx]);
+        const name = row[nameIdx];
+
+        if (name && !isNaN(lat) && !isNaN(lng)) {
+            // Build object with all metadata
+            let siteObj = {
+                name: name,
+                latitude: lat,
+                longitude: lng,
+                color: 'imported', // Used by activeFilter
+                isImported: true   // Custom flag
+            };
+
+            // Add remaining columns as metadata
+            parsedImportHeaders.forEach((header, i) => {
+                if (i !== nameIdx && i !== latIdx && i !== lngIdx) {
+                    siteObj[header] = row[i];
+                }
+            });
+
+            newSites.push(siteObj);
+            validCount++;
+        }
+    });
+
+    if (validCount === 0) {
+        showToast('No valid coordinates found.', 'error');
+        return;
+    }
+
+    importedSites = newSites;
+    combineAndRender();
+    
+    // Fit map to imported sites
+    const importedBounds = L.latLngBounds(newSites.map(s => [s.latitude, s.longitude]));
+    map.flyToBounds(importedBounds, { padding: [60, 60], duration: 0.8, maxZoom: 16 });
+
+    closeImportModal();
+    showToast(`Successfully plotted ${validCount} locations!`, 'success');
+
+    // Change button to Clear
+    const btn = document.getElementById('btn-import-toggle');
+    btn.innerHTML = `<i class="fa-solid fa-trash-can"></i> <span>Clear Imported Data</span>`;
+    btn.className = "w-full flex items-center justify-center gap-2 bg-red-900/20 hover:bg-red-900/40 border border-red-500/30 text-red-400 rounded-lg py-2 text-xs font-semibold transition mt-1";
+    btn.onclick = clearImport;
+}
+
+function clearImport() {
+    importedSites = [];
+    activeFilter = null;
+    combineAndRender();
+    
+    // Reset button
+    const btn = document.getElementById('btn-import-toggle');
+    btn.innerHTML = `<i class="fa-solid fa-file-import"></i> <span>Paste Spreadsheet Data</span>`;
+    btn.className = "w-full flex items-center justify-center gap-2 bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 border border-[#3b82f6]/30 text-[#3b82f6] rounded-lg py-2 text-xs font-semibold transition mt-1";
+    btn.onclick = openImportModal;
+    
+    showToast('Imported data cleared.', 'info');
 }

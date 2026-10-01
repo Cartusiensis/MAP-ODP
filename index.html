@@ -77,6 +77,51 @@
         </div>
     </div>
 
+    <!-- IMPORT DATA OVERLAY -->
+    <div id="import-overlay" class="fixed inset-0 z-[9999] bg-bg/90 backdrop-blur-sm hidden items-center justify-center transition-opacity duration-300 opacity-0">
+        <div class="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl mx-4 flex flex-col max-h-[90vh]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-display font-bold text-fg flex items-center gap-2">
+                    <i class="fa-solid fa-file-excel text-green-500"></i> Import Data
+                </h2>
+                <button onclick="closeImportModal()" class="text-muted hover:text-fg transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Step 1: Paste Area -->
+            <div id="import-step-1" class="flex flex-col gap-2">
+                <p class="text-xs text-muted mb-2">Copy rows from Excel or Google Sheets (including headers) and paste them here:</p>
+                <textarea id="import-textarea" class="w-full h-40 bg-surface border border-border rounded-lg p-3 text-xs text-fg placeholder-muted/50 focus:outline-none focus:border-accent/60 transition resize-none font-mono" placeholder="Click here and press Ctrl+V / Cmd+V..."></textarea>
+            </div>
+
+            <!-- Step 2: Mapping Area -->
+            <div id="import-step-2" class="hidden flex-col gap-4 overflow-y-auto pr-2">
+                <div class="bg-surface/50 p-3 rounded-lg border border-border text-xs text-muted">
+                    Found <span id="import-row-count" class="font-bold text-fg">0</span> rows. Please map your columns below:
+                </div>
+                
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-[11px] font-semibold uppercase text-muted">Title / Name Column</label>
+                    <select id="import-map-name" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-fg focus:outline-none focus:border-accent transition"></select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-[11px] font-semibold uppercase text-muted">Latitude Column</label>
+                    <select id="import-map-lat" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-fg focus:outline-none focus:border-accent transition"></select>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-[11px] font-semibold uppercase text-muted">Longitude Column</label>
+                    <select id="import-map-lng" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-fg focus:outline-none focus:border-accent transition"></select>
+                </div>
+
+                <div class="flex gap-2 mt-2">
+                    <button onclick="closeImportModal()" class="flex-1 bg-surface hover:bg-border text-fg rounded-lg py-2.5 text-sm font-semibold transition">Cancel</button>
+                    <button onclick="processImport()" class="flex-1 bg-accent hover:bg-accent-h text-white rounded-lg py-2.5 text-sm font-semibold transition">Plot to Map</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-container" class="fixed top-4 right-4 z-[2000] flex flex-col gap-2 pointer-events-none"></div>
     <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
@@ -179,6 +224,9 @@
                     </button>
                     <button onclick="fitAll()" class="flex-1 flex items-center justify-center gap-2 bg-card hover:bg-surface border border-border rounded-lg py-2 text-xs text-muted hover:text-fg transition">
                         <i class="fa-solid fa-expand"></i> Fit Map
+                    </button>
+                    <button id="btn-import-toggle" onclick="openImportModal()" class="w-full flex items-center justify-center gap-2 bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 border border-[#3b82f6]/30 text-[#3b82f6] rounded-lg py-2 text-xs font-semibold transition mt-1">
+                        <i class="fa-solid fa-file-import"></i> <span>Paste Spreadsheet Data</span>
                     </button>
                 </div>
             </div>
