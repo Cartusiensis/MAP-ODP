@@ -5,6 +5,9 @@ export let markersGroup = null;
 export let importedGroup = null;      // Layer specifically for unclustered houses
 export let measureLayerGroup = null;
 
+// New Guinea island (Papua + PNG). Users can't pan outside it or zoom out past it.
+const PAPUA_BOUNDS = L.latLngBounds([-11.0, 130.0], [0.5, 151.5]);
+
 export function initMap() {
     const googleStreets = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         attribution: '&copy; Google Maps',
@@ -25,8 +28,15 @@ export function initMap() {
         layers: [googleStreets],
         zoomControl: true,
         maxZoom: 20,
+        maxBounds: PAPUA_BOUNDS,
+        maxBoundsViscosity: 1.0,
         preferCanvas: true
     });
+
+    // The zoom that just fits the island depends on screen size, so recompute it on resize
+    const updateMinZoom = () => map.setMinZoom(map.getBoundsZoom(PAPUA_BOUNDS));
+    updateMinZoom();
+    map.on('resize', updateMinZoom);
 
     const baseMaps = {
         "Standard Map": googleStreets,

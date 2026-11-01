@@ -6,7 +6,7 @@ import './styles.css';
 
 import { initMap } from './map.js';
 import { isMeasuring } from './state.js';
-import { toggleSidebar } from './utils.js';
+import { toggleSidebar, closeSidebar } from './utils.js';
 import { handleAuthFlow, handleLogout, restoreSession } from './auth.js';
 import { fetchSupabaseData, handleListSearch, toggleFilter, fitAll } from './sites.js';
 import { selectSite, closeDetail, panToSelected } from './detail.js';
@@ -19,6 +19,9 @@ import {
 import { handleImportToggle, closeImportModal, handleImportPaste, processImport } from './import.js';
 
 const $ = (id) => document.getElementById(id);
+
+// Runs an action, then hides the mobile sidebar so its result on the map is visible
+const thenCloseSidebar = (fn) => (...args) => { fn(...args); closeSidebar(); };
 
 function bindMapEvents(map) {
     map.on('click', (e) => {
@@ -45,14 +48,20 @@ function bindUiEvents() {
     // Sidebar
     $('mobile-menu-btn').addEventListener('click', toggleSidebar);
     $('sidebar-overlay').addEventListener('click', toggleSidebar);
-    $('coord-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchCoord(); });
-    $('btn-search-coord').addEventListener('click', searchCoord);
+    $('coord-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            searchCoord();
+            closeSidebar();
+            e.target.blur(); // dismiss the on-screen keyboard
+        }
+    });
+    $('btn-search-coord').addEventListener('click', thenCloseSidebar(searchCoord));
     $('clear-pin-btn').addEventListener('click', clearSearchPin);
     $('poles-toggle').addEventListener('click', togglePolesLayer);
     $('list-search-input').addEventListener('input', handleListSearch);
     $('btn-refresh').addEventListener('click', fetchSupabaseData);
-    $('btn-measure').addEventListener('click', toggleMeasureTool);
-    $('btn-fit').addEventListener('click', fitAll);
+    $('btn-measure').addEventListener('click', thenCloseSidebar(toggleMeasureTool));
+    $('btn-fit').addEventListener('click', thenCloseSidebar(fitAll));
 
     // Legend and site list are re-rendered often, so delegate clicks to their containers
     $('legend').addEventListener('click', (e) => {
@@ -61,7 +70,9 @@ function bindUiEvents() {
     });
     $('site-list').addEventListener('click', (e) => {
         const item = e.target.closest('.site-item');
-        if (item) selectSite(parseInt(item.dataset.idx));
+        if (!item) return;
+        selectSite(parseInt(item.dataset.idx));
+        closeSidebar();
     });
 
     // Measure toolbar
@@ -78,7 +89,7 @@ function bindUiEvents() {
     $('btn-import-toggle').addEventListener('click', handleImportToggle);
     $('import-textarea').addEventListener('input', handleImportPaste);
     document.querySelectorAll('[data-action="close-import"]').forEach(btn => btn.addEventListener('click', closeImportModal));
-    $('btn-import-process').addEventListener('click', processImport);
+    $('btn-import-process').addEventListener('click', thenCloseSidebar(processImport));
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && isMeasuring()) finishMeasure();

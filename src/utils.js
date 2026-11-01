@@ -6,6 +6,11 @@ export function toggleSidebar() {
     document.getElementById('sidebar-overlay').classList.toggle('show');
 }
 
+// On mobile the sidebar covers the map; hide it once an action should show something there
+export function closeSidebar() {
+    if (document.getElementById('sidebar').classList.contains('show')) toggleSidebar();
+}
+
 export function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     const colors = {

@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0D1117">
     <title>POMAKO</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,7 +16,7 @@
 <body class="bg-bg text-fg font-body">
     <!-- AUTHENTICATION OVERLAY -->
     <div id="auth-overlay" class="fixed inset-0 z-[9999] bg-bg flex items-center justify-center transition-opacity duration-300">
-        <div class="bg-card border border-border rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+        <div class="bg-card border border-border rounded-2xl p-6 sm:p-8 w-full max-w-sm mx-4 shadow-2xl">
             <div class="flex justify-center mb-6">
                 <div class="w-12 h-12 rounded-xl bg-accent/15 flex items-center justify-center">
                     <i class="fa-solid fa-map-location-dot text-accent text-xl"></i>
@@ -96,7 +97,7 @@
     <div id="toast-container" class="fixed top-4 right-4 z-[2000] flex flex-col gap-2 pointer-events-none"></div>
     <div id="sidebar-overlay"></div>
 
-    <div class="flex h-screen w-screen">
+    <div class="flex h-screen h-dvh w-screen">
         
         <!-- Sidebar -->
         <aside id="sidebar" class="w-[340px] min-w-[340px] bg-sidebar flex flex-col border-r border-border relative shadow-xl z-20">
@@ -178,7 +179,7 @@
             </div>
 
             <!-- Bottom Actions -->
-            <div class="px-4 py-3 border-t border-border bg-sidebar/80 backdrop-blur-sm flex flex-col gap-2">
+            <div id="sidebar-actions" class="px-4 py-3 border-t border-border bg-sidebar/80 backdrop-blur-sm flex flex-col gap-2">
                 <div class="flex gap-2">
                     <button id="btn-refresh" class="flex-1 flex items-center justify-center gap-2 bg-accent hover:bg-accent-h text-white rounded-lg py-2.5 text-sm font-semibold transition shadow-lg shadow-accent/20">
                         <i class="fa-solid fa-rotate-right text-xs"></i> Refresh Odp
@@ -194,10 +195,10 @@
                     <button id="btn-fit" class="flex-1 flex items-center justify-center gap-2 bg-card hover:bg-surface border border-border rounded-lg py-2 text-xs text-muted hover:text-fg transition">
                         <i class="fa-solid fa-expand"></i> Fit Map
                     </button>
-                    <button id="btn-import-toggle" class="w-full flex items-center justify-center gap-2 bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 border border-[#3b82f6]/30 text-[#3b82f6] rounded-lg py-2 text-xs font-semibold transition mt-1">
-                        <i class="fa-solid fa-file-import"></i> <span>Paste Spreadsheet Data</span>
-                    </button>
                 </div>
+                <button id="btn-import-toggle" class="w-full flex items-center justify-center gap-2 bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 border border-[#3b82f6]/30 text-[#3b82f6] rounded-lg py-2 text-xs font-semibold transition">
+                    <i class="fa-solid fa-file-import"></i> <span>Paste Spreadsheet Data</span>
+                </button>
             </div>
         </aside>
 
@@ -212,10 +213,10 @@
             <!-- FLOATING MEASURE TOOLBAR -->
             <div id="measure-toolbar" class="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-sidebar/95 backdrop-blur-md border border-border rounded-xl shadow-2xl p-1.5 hidden flex-row items-center gap-1 transition-all">
                 <button id="btn-measure-dist" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted hover:text-fg hover:bg-surface transition flex items-center">
-                    <i class="fa-solid fa-ruler mr-1.5"></i> Distance
+                    <i class="fa-solid fa-ruler"></i><span class="measure-label ml-1.5">Distance</span>
                 </button>
                 <button id="btn-measure-area" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-muted hover:text-fg hover:bg-surface transition flex items-center">
-                    <i class="fa-solid fa-draw-polygon mr-1.5"></i> Area
+                    <i class="fa-solid fa-draw-polygon"></i><span class="measure-label ml-1.5">Area</span>
                 </button>
                 <div class="w-px h-5 bg-border mx-1"></div>
                 <div id="measure-result" class="text-sm font-mono font-bold text-accent min-w-[120px] text-center px-2 tracking-wide">0 m</div>
@@ -241,7 +242,7 @@
 
                 <div class="flex-1 overflow-y-auto px-5 pb-6" id="detail-content"></div>
 
-                <div class="px-5 py-3 border-t border-border flex gap-2">
+                <div id="detail-actions" class="px-5 py-3 border-t border-border flex gap-2">
                     <button id="btn-zoom-selected" class="flex-1 flex items-center justify-center gap-2 bg-accent hover:bg-accent-h text-white rounded-lg py-2.5 text-sm font-semibold transition">
                         <i class="fa-solid fa-location-arrow text-xs"></i> Zoom to Odp
                     </button>
