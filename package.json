@@ -1,0 +1,27 @@
+{
+  "name": "pomako",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^6.5.1",
+    "@supabase/supabase-js": "^2.45.4",
+    "@tmcw/togeojson": "^5.8.1",
+    "@turf/area": "^7.4.0",
+    "@turf/helpers": "^7.4.0",
+    "jszip": "^3.10.1",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "vite": "^5.4.10"
+  }
+}
