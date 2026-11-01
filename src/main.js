@@ -10,7 +10,7 @@ import { toggleSidebar, closeSidebar } from './utils.js';
 import { handleAuthFlow, handleLogout, restoreSession } from './auth.js';
 import { fetchSupabaseData, handleListSearch, toggleFilter, fitAll } from './sites.js';
 import { selectSite, closeDetail, panToSelected } from './detail.js';
-import { searchCoord, clearSearchPin } from './search.js';
+import { searchCoord, clearSearchPin, dropPin, showCoordinates } from './search.js';
 import { togglePolesLayer, checkPolesVisibility } from './poles.js';
 import {
     toggleMeasureTool, setMeasureMode, clearMeasure,
@@ -24,10 +24,13 @@ const $ = (id) => document.getElementById(id);
 const thenCloseSidebar = (fn) => (...args) => { fn(...args); closeSidebar(); };
 
 function bindMapEvents(map) {
+    // Like Google Maps: click drops a pin, right-click / long-press shows the coordinates
     map.on('click', (e) => {
         if (isMeasuring()) handleMeasureClick(e);
-        else closeDetail();
+        else dropPin(e.latlng.lat, e.latlng.lng);
     });
+
+    map.on('contextmenu', (e) => showCoordinates(e.latlng));
 
     map.on('mousemove', (e) => {
         if (isMeasuring() && hasMeasurePoints()) handleMeasureMove(e);

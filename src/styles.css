@@ -93,6 +93,15 @@ body { font-family: 'DM Sans', sans-serif; overflow: hidden; background: #0D1117
 .leaflet-control-attribution { background: rgba(13,17,23,0.85) !important; color: #7D8CA3 !important; font-size: 10px !important; border-radius: 4px 0 0 0; }
 .leaflet-control-attribution a { color: #F0883E !important; }
 
+/* COORDINATE POPUP (dropped pin / right-click) */
+.coord-popup .leaflet-popup-content-wrapper {
+    background: #1A2233; color: #E6EDF3;
+    border: 1px solid #2A3A50; border-radius: 10px;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.5);
+}
+.coord-popup .leaflet-popup-content { margin: 8px 12px; }
+.coord-popup .leaflet-popup-tip { background: #1A2233; border: 1px solid #2A3A50; }
+
 /* MEASURE TOOL STYLES */
 .measuring-mode { cursor: crosshair !important; }
 .measure-tooltip {

@@ -30,6 +30,7 @@ export function initMap() {
         maxZoom: 20,
         maxBounds: PAPUA_BOUNDS,
         maxBoundsViscosity: 1.0,
+        tapHold: true, // long-press fires 'contextmenu' on touch screens
         preferCanvas: true
     });
 

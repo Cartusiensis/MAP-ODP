@@ -104,7 +104,8 @@ function buildPolesLayer() {
                 color: "#0f172a",     // Dark Gray Border
                 weight: 1,
                 opacity: 1,
-                fillOpacity: 0.9
+                fillOpacity: 0.9,
+                bubblingMouseEvents: false // clicking a pole opens its popup, not a dropped pin
             });
         },
         onEachFeature: function (feature, layer) {
